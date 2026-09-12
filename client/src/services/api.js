@@ -1,4 +1,4 @@
-const BASE_URL = 'http://localhost:5000/api/v1';
+const BASE_URL = 'http://localhost:5000/api';
 
 const getHeaders = (isMultipart = false) => {
   const token = localStorage.getItem('smart_bhavnagar_token');
@@ -31,7 +31,7 @@ export const api = {
   },
 
   getIssueByTrackingId: async (trackingId) => {
-    const res = await fetch(`${BASE_URL}/issues/track/${trackingId}`, {
+    const res = await fetch(`${BASE_URL}/issues/${trackingId}`, {
       headers: getHeaders()
     });
     return handleResponse(res);
@@ -44,11 +44,12 @@ export const api = {
     return handleResponse(res);
   },
 
-  createIssue: async (formData) => {
+  createIssue: async (data) => {
+    const isMultipart = data instanceof FormData;
     const res = await fetch(`${BASE_URL}/issues`, {
       method: 'POST',
-      headers: getHeaders(true),
-      body: formData
+      headers: getHeaders(isMultipart),
+      body: isMultipart ? data : JSON.stringify(data)
     });
     return handleResponse(res);
   },
@@ -72,10 +73,11 @@ export const api = {
   },
 
   resolveIssue: async (id, formData) => {
+    const isMultipart = formData instanceof FormData;
     const res = await fetch(`${BASE_URL}/issues/${id}/resolve`, {
       method: 'POST',
-      headers: getHeaders(true),
-      body: formData
+      headers: getHeaders(isMultipart),
+      body: isMultipart ? formData : JSON.stringify(formData)
     });
     return handleResponse(res);
   },
@@ -94,12 +96,36 @@ export const api = {
     return handleResponse(res);
   },
 
+  // Metadata
+  getDepartments: async () => {
+    const res = await fetch(`${BASE_URL}/departments`, {
+      headers: getHeaders()
+    });
+    return handleResponse(res);
+  },
+
+  getCategories: async () => {
+    const res = await fetch(`${BASE_URL}/categories`, {
+      headers: getHeaders()
+    });
+    return handleResponse(res);
+  },
+
+  getUsers: async (params = {}) => {
+    const query = new URLSearchParams(params).toString();
+    const res = await fetch(`${BASE_URL}/users?${query}`, {
+      headers: getHeaders()
+    });
+    return handleResponse(res);
+  },
+
   // AI
   testAiAnalyze: async (formData) => {
+    const isMultipart = formData instanceof FormData;
     const res = await fetch(`${BASE_URL}/ai/analyze`, {
       method: 'POST',
-      headers: getHeaders(true),
-      body: formData
+      headers: getHeaders(isMultipart),
+      body: isMultipart ? formData : JSON.stringify(formData)
     });
     return handleResponse(res);
   },
@@ -133,11 +159,14 @@ export const api = {
   },
 
   // Auth
-  login: async (phone, password) => {
+  login: async (identifier, password) => {
+    const payload = identifier.includes('@')
+      ? { email: identifier, password }
+      : { phone: identifier, password };
     const res = await fetch(`${BASE_URL}/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ phone, password })
+      body: JSON.stringify(payload)
     });
     return handleResponse(res);
   },

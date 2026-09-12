@@ -90,14 +90,29 @@ export const Navbar = () => {
           </Link>
 
           <Link
-            to="/report"
+            to="/citizen"
+            style={{
+              padding: '0.45rem 0.85rem',
+              borderRadius: '6px',
+              fontSize: '0.9rem',
+              fontWeight: 600,
+              color: isActive('/citizen') ? '#38bdf8' : 'var(--text-secondary)',
+              background: isActive('/citizen') ? 'rgba(56, 189, 248, 0.1)' : 'transparent',
+              transition: 'all 0.15s ease'
+            }}
+          >
+            Citizen Portal
+          </Link>
+
+          <Link
+            to="/citizen/report"
             className="btn btn-primary btn-sm"
             style={{
               boxShadow: '0 0 16px rgba(6, 182, 212, 0.35)',
               margin: '0 0.25rem'
             }}
           >
-            <PlusCircle size={15} /> Report Issue
+            <PlusCircle size={15} /> Report Problem
           </Link>
 
           <Link
