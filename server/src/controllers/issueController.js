@@ -1,109 +1,156 @@
+import mongoose from 'mongoose';
 import { Issue } from '../models/Issue.js';
+import { Timeline } from '../models/Timeline.js';
+import { generateIssueNumber } from '../services/issueNumberService.js';
 import { analyzeIssueWithAI } from '../services/aiService.js';
-import { routeCategoryToDepartment } from '../services/departmentRouter.js';
+import { routeCategoryToDepartment, CATEGORY_DEPARTMENT_MAP } from '../services/departmentRouter.js';
 
 export const createIssue = async (req, res, next) => {
   try {
     const {
       title,
       description,
-      category = 'roads_potholes',
+      category = 'Road & Pothole',
+      severity,
+      priority,
       latitude,
       longitude,
       address = 'Bhavnagar, Gujarat',
-      ward = 'Ward 1 - Kaliyabid & Hill Drive',
-      landmark = '',
+      area = 'Kaliyabid',
+      ward = 'Ward 1 - Kaliyabid',
       citizenName = 'Concerned Citizen',
       citizenPhone = '9876543210'
     } = req.body;
 
-    if (!title || !description) {
+    if (!description && !title) {
       return res.status(400).json({
         success: false,
-        message: 'Title and description are required.'
+        message: 'Issue description is required.'
       });
     }
 
-    // Process uploaded file
-    const imagePath = req.file ? `/uploads/${req.file.filename}` : null;
+    const issueDescription = description || title;
+    const issueTitle = title || issueDescription.slice(0, 60);
+
+    // Process image path
+    const imagePath = req.file ? `/uploads/${req.file.filename}` : req.body.imageUrl || '';
     const images = imagePath ? [imagePath] : [];
 
-    // Parse coordinates (defaulting to Bhavnagar center if invalid)
+    // Parse coordinates
     const lat = parseFloat(latitude) || 21.7645;
     const lng = parseFloat(longitude) || 72.1519;
 
-    // Unique tracking ID: e.g. SB-84920
-    const randomCode = Math.floor(10000 + Math.random() * 90000);
-    const trackingId = `SB-${randomCode}`;
+    // Generate reliable collision-free sequential issue number
+    const issueNumber = await generateIssueNumber(2026);
 
-    // Execute AI Triage Analysis
+    // Run AI analysis if possible
     const absoluteImagePath = req.file ? req.file.path : null;
     const mimeType = req.file ? req.file.mimetype : 'image/jpeg';
-    
+
     let aiResult;
     try {
       aiResult = await analyzeIssueWithAI({
-        title,
-        description,
+        title: issueTitle,
+        description: issueDescription,
         categoryHint: category,
         imagePath: absoluteImagePath,
         mimeType
       });
     } catch (aiErr) {
-      console.warn('[AI Triage Exception]:', aiErr.message);
+      const mappedDept = CATEGORY_DEPARTMENT_MAP[category] || routeCategoryToDepartment(category, issueDescription);
       aiResult = {
-        confidence: 0.8,
+        confidence: 0.85,
         suggestedCategory: category,
-        suggestedDepartment: routeCategoryToDepartment(category, description),
+        suggestedDepartment: mappedDept,
         severityScore: 5,
         safetyHazard: false,
         priority: 'medium',
         urgencyReason: 'Standard civic queue classification.',
         detectedKeywords: ['civic report'],
-        summary: 'Report logged in municipal system queue.'
+        summary: `Citizen grievance reported regarding ${category} in ${area || 'Bhavnagar'}.`
       };
     }
 
-    const assignedDepartment = aiResult.suggestedDepartment || routeCategoryToDepartment(category, description);
-    const calculatedPriority = aiResult.priority || 'medium';
+    const resolvedDepartment =
+      req.body.department ||
+      CATEGORY_DEPARTMENT_MAP[category] ||
+      aiResult.suggestedDepartment ||
+      routeCategoryToDepartment(category, issueDescription);
+
+    let resolvedSeverity = severity;
+    if (!resolvedSeverity) {
+      if (priority === 'urgent' || aiResult.severityScore >= 8) resolvedSeverity = 'Critical';
+      else if (priority === 'high' || aiResult.severityScore >= 6) resolvedSeverity = 'High';
+      else if (priority === 'low' || aiResult.severityScore <= 3) resolvedSeverity = 'Low';
+      else resolvedSeverity = 'Medium';
+    }
 
     const issue = await Issue.create({
-      trackingId,
-      title,
-      description,
-      category: aiResult.suggestedCategory || category,
+      issueNumber,
+      trackingId: issueNumber,
+      title: issueTitle,
+      description: issueDescription,
+      category,
+      severity: resolvedSeverity,
+      department: resolvedDepartment,
+      assignedDepartment: resolvedDepartment,
+      status: 'Pending',
+      latitude: lat,
+      longitude: lng,
+      address,
+      area,
+      ward,
+      imageUrl: imagePath,
       images,
-      location: {
-        type: 'Point',
-        coordinates: [lng, lat],
-        address,
-        ward,
-        landmark
-      },
+      aiSummary: aiResult.summary || `AI triaged report for ${category}.`,
+      aiConfidence: aiResult.confidence || 0.85,
+      aiAnalysis: aiResult,
       reportedBy: req.user ? req.user._id : null,
       citizenContact: {
-        name: citizenName,
-        phone: citizenPhone
+        name: req.user?.name || citizenName,
+        phone: req.user?.phone || citizenPhone
       },
-      status: 'ai_analyzed',
-      priority: calculatedPriority,
-      aiAnalysis: aiResult,
-      assignedDepartment,
       timeline: [
         {
-          status: 'submitted',
-          notes: 'Civic issue report submitted by citizen with location coordinates.',
-          timestamp: new Date(),
-          updatedBy: citizenName
+          action: 'Report Submitted',
+          status: 'Pending',
+          description: `Citizen submitted report with geo-tagged coordinates at ${area}.`,
+          notes: `Citizen submitted report with geo-tagged coordinates at ${area}.`,
+          performedBy: req.user?.name || citizenName,
+          updatedBy: req.user?.name || citizenName,
+          createdAt: new Date(),
+          timestamp: new Date()
         },
         {
-          status: 'ai_analyzed',
-          notes: `AI Triage completed. Routed to [${assignedDepartment}] with priority [${calculatedPriority.toUpperCase()}]. Severity Score: ${aiResult.severityScore}/10.`,
-          timestamp: new Date(),
-          updatedBy: 'AI Civic Intelligence Engine'
+          action: 'AI Analysis Completed',
+          status: 'Pending',
+          description: `AI Triage completed. Severity: ${resolvedSeverity} (${aiResult.severityScore}/10). Department: ${resolvedDepartment}.`,
+          notes: `AI Triage completed. Severity: ${resolvedSeverity} (${aiResult.severityScore}/10). Department: ${resolvedDepartment}.`,
+          performedBy: 'AI Civic Intelligence Engine',
+          updatedBy: 'AI Civic Intelligence Engine',
+          createdAt: new Date(),
+          timestamp: new Date()
         }
       ]
     });
+
+    // Create standalone Timeline records
+    await Timeline.create([
+      {
+        issueId: issue._id,
+        action: 'Report Submitted',
+        description: `Civic issue reported by citizen at ${area}, Bhavnagar.`,
+        performedBy: req.user?.name || citizenName,
+        createdAt: new Date()
+      },
+      {
+        issueId: issue._id,
+        action: 'AI Analysis Completed',
+        description: `AI analysis completed with confidence ${Math.round((aiResult.confidence || 0.85) * 100)}%. Severity assessed as ${resolvedSeverity}. Routed to ${resolvedDepartment}.`,
+        performedBy: 'AI Civic Intelligence Engine',
+        createdAt: new Date()
+      }
+    ]);
 
     res.status(201).json({
       success: true,
@@ -120,9 +167,11 @@ export const getIssues = async (req, res, next) => {
     const {
       status,
       category,
+      severity,
       priority,
       department,
       ward,
+      area,
       search,
       page = 1,
       limit = 50
@@ -131,33 +180,42 @@ export const getIssues = async (req, res, next) => {
     const query = {};
 
     if (status && status !== 'all') {
-      query.status = status;
+      // Support matching case-insensitively or standard enum
+      const statusRegex = new RegExp(`^${status}$`, 'i');
+      query.$or = [{ status: statusRegex }];
     }
     if (category && category !== 'all') {
       query.category = category;
     }
-    if (priority && priority !== 'all') {
+    if (severity && severity !== 'all') {
+      query.severity = severity;
+    } else if (priority && priority !== 'all') {
       query.priority = priority;
     }
     if (department && department !== 'all') {
-      query.assignedDepartment = department;
+      query.$or = [{ department }, { assignedDepartment: department }];
     }
     if (ward && ward !== 'all') {
-      query['location.ward'] = ward;
+      query.ward = ward;
+    }
+    if (area && area !== 'all') {
+      query.area = area;
     }
 
     if (search) {
       query.$or = [
+        { issueNumber: { $regex: search, $options: 'i' } },
+        { trackingId: { $regex: search, $options: 'i' } },
         { title: { $regex: search, $options: 'i' } },
         { description: { $regex: search, $options: 'i' } },
-        { trackingId: { $regex: search, $options: 'i' } },
-        { 'location.address': { $regex: search, $options: 'i' } },
-        { 'location.landmark': { $regex: search, $options: 'i' } }
+        { address: { $regex: search, $options: 'i' } },
+        { area: { $regex: search, $options: 'i' } },
+        { ward: { $regex: search, $options: 'i' } }
       ];
     }
 
-    const pageNum = parseInt(page, 10);
-    const limitNum = parseInt(limit, 10);
+    const pageNum = parseInt(page, 10) || 1;
+    const limitNum = parseInt(limit, 10) || 50;
     const skip = (pageNum - 1) * limitNum;
 
     const total = await Issue.countDocuments(query);
@@ -165,8 +223,8 @@ export const getIssues = async (req, res, next) => {
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limitNum)
-      .populate('reportedBy', 'name phone')
-      .populate('assignedOfficer.officerId', 'name phone department');
+      .populate('reportedBy', 'name phone email')
+      .populate('assignedOfficer.officerId', 'name phone department email');
 
     res.status(200).json({
       success: true,
@@ -180,55 +238,56 @@ export const getIssues = async (req, res, next) => {
   }
 };
 
-export const getIssueByTrackingId = async (req, res, next) => {
+export const getIssueById = async (req, res, next) => {
   try {
-    const { trackingId } = req.params;
-    const issue = await Issue.findOne({ trackingId })
-      .populate('reportedBy', 'name phone')
-      .populate('assignedOfficer.officerId', 'name phone department');
+    const { id } = req.params;
+    let query;
+
+    if (mongoose.isValidObjectId(id)) {
+      query = { $or: [{ _id: id }, { issueNumber: id }, { trackingId: id }] };
+    } else {
+      query = { $or: [{ issueNumber: id }, { trackingId: id }] };
+    }
+
+    const issue = await Issue.findOne(query)
+      .populate('reportedBy', 'name phone email')
+      .populate('assignedOfficer.officerId', 'name phone department email');
 
     if (!issue) {
       return res.status(404).json({
         success: false,
-        message: `No civic issue found with Tracking ID "${trackingId}".`
+        message: `No civic issue found with ID or Issue Number "${id}".`
       });
+    }
+
+    // Attach standalone timeline history if available
+    const timelineHistory = await Timeline.find({ issueId: issue._id }).sort({ createdAt: 1 });
+
+    const responseData = issue.toObject();
+    if (timelineHistory && timelineHistory.length > 0) {
+      responseData.history = timelineHistory;
     }
 
     res.status(200).json({
       success: true,
-      data: issue
+      data: responseData
     });
   } catch (error) {
     next(error);
   }
 };
 
-export const getIssueById = async (req, res, next) => {
-  try {
-    const issue = await Issue.findById(req.params.id)
-      .populate('reportedBy', 'name phone')
-      .populate('assignedOfficer.officerId', 'name phone department');
-
-    if (!issue) {
-      return res.status(404).json({
-        success: false,
-        message: 'Issue not found.'
-      });
-    }
-
-    res.status(200).json({
-      success: true,
-      data: issue
-    });
-  } catch (error) {
-    next(error);
-  }
+export const getIssueByTrackingId = async (req, res, next) => {
+  return getIssueById(req, res, next);
 };
 
 export const updateIssueStatus = async (req, res, next) => {
   try {
     const { status, notes } = req.body;
-    const issue = await Issue.findById(req.params.id);
+    const { id } = req.params;
+
+    const query = mongoose.isValidObjectId(id) ? { _id: id } : { issueNumber: id };
+    const issue = await Issue.findOne(query);
 
     if (!issue) {
       return res.status(404).json({
@@ -237,19 +296,41 @@ export const updateIssueStatus = async (req, res, next) => {
       });
     }
 
-    issue.status = status;
+    // Map status to standard enum if necessary
+    const normalizedStatus =
+      status === 'in_progress' ? 'In Progress' :
+      status === 'resolved' ? 'Resolved' :
+      status === 'pending' || status === 'submitted' ? 'Pending' :
+      status === 'reopened' ? 'Reopened' : status;
+
+    issue.status = normalizedStatus;
+    const actor = req.user ? req.user.name : 'Municipal Officer';
+    const actionDesc = notes || `Status transitioned to ${normalizedStatus} by municipal authority.`;
+
     issue.timeline.push({
-      status,
-      notes: notes || `Status transitioned to ${status} by municipal authority.`,
-      timestamp: new Date(),
-      updatedBy: req.user ? req.user.name : 'Municipal Officer'
+      action: normalizedStatus === 'In Progress' ? 'Work Started' : normalizedStatus,
+      status: normalizedStatus,
+      description: actionDesc,
+      notes: actionDesc,
+      performedBy: actor,
+      updatedBy: actor,
+      createdAt: new Date(),
+      timestamp: new Date()
     });
 
     await issue.save();
 
+    await Timeline.create({
+      issueId: issue._id,
+      action: normalizedStatus === 'In Progress' ? 'Work Started' : normalizedStatus,
+      description: actionDesc,
+      performedBy: actor,
+      createdAt: new Date()
+    });
+
     res.status(200).json({
       success: true,
-      message: `Issue status updated to ${status}.`,
+      message: `Issue status updated to ${normalizedStatus}.`,
       data: issue
     });
   } catch (error) {
@@ -260,7 +341,10 @@ export const updateIssueStatus = async (req, res, next) => {
 export const assignOfficer = async (req, res, next) => {
   try {
     const { officerId, officerName, department, notes } = req.body;
-    const issue = await Issue.findById(req.params.id);
+    const { id } = req.params;
+
+    const query = mongoose.isValidObjectId(id) ? { _id: id } : { issueNumber: id };
+    const issue = await Issue.findOne(query);
 
     if (!issue) {
       return res.status(404).json({
@@ -270,6 +354,7 @@ export const assignOfficer = async (req, res, next) => {
     }
 
     if (department) {
+      issue.department = department;
       issue.assignedDepartment = department;
     }
 
@@ -279,15 +364,30 @@ export const assignOfficer = async (req, res, next) => {
       assignedAt: new Date()
     };
 
-    issue.status = 'assigned';
+    issue.status = 'In Progress';
+    const actor = req.user ? req.user.name : 'Supervising Engineer';
+    const desc = notes || `Dispatched to officer ${officerName || 'Field Team'} (${issue.department}).`;
+
     issue.timeline.push({
-      status: 'assigned',
-      notes: notes || `Dispatched to officer ${officerName || 'Field Team'} (${issue.assignedDepartment}).`,
-      timestamp: new Date(),
-      updatedBy: req.user ? req.user.name : 'Supervising Engineer'
+      action: 'Assigned',
+      status: 'In Progress',
+      description: desc,
+      notes: desc,
+      performedBy: actor,
+      updatedBy: actor,
+      createdAt: new Date(),
+      timestamp: new Date()
     });
 
     await issue.save();
+
+    await Timeline.create({
+      issueId: issue._id,
+      action: 'Assigned',
+      description: desc,
+      performedBy: actor,
+      createdAt: new Date()
+    });
 
     res.status(200).json({
       success: true,
@@ -302,7 +402,10 @@ export const assignOfficer = async (req, res, next) => {
 export const resolveIssue = async (req, res, next) => {
   try {
     const { notes } = req.body;
-    const issue = await Issue.findById(req.params.id);
+    const { id } = req.params;
+
+    const query = mongoose.isValidObjectId(id) ? { _id: id } : { issueNumber: id };
+    const issue = await Issue.findOne(query);
 
     if (!issue) {
       return res.status(404).json({
@@ -311,24 +414,42 @@ export const resolveIssue = async (req, res, next) => {
       });
     }
 
-    const proofImage = req.file ? `/uploads/${req.file.filename}` : null;
+    const proofImage = req.file ? `/uploads/${req.file.filename}` : req.body.resolutionImageUrl || issue.resolutionImageUrl || '';
+    const resolutionNote = notes || req.body.resolutionNote || 'Civic issue successfully resolved on ground with inspection proof.';
+    const actor = req.user ? req.user.name : 'BMC Field Engineer';
 
-    issue.status = 'resolved';
+    issue.status = 'Resolved';
+    issue.resolutionImageUrl = proofImage;
+    issue.resolutionNote = resolutionNote;
+    issue.resolvedAt = new Date();
+
     issue.resolution = {
-      resolvedAt: new Date(),
+      resolvedAt: issue.resolvedAt,
       resolvedBy: req.user ? req.user._id : null,
-      notes: notes || 'Civic issue successfully resolved on ground with inspection proof.',
-      proofImage: proofImage || issue.resolution?.proofImage || ''
+      notes: resolutionNote,
+      proofImage
     };
 
     issue.timeline.push({
-      status: 'resolved',
-      notes: notes || 'Issue resolved. Verification photo uploaded by BMC engineering team.',
-      timestamp: new Date(),
-      updatedBy: req.user ? req.user.name : 'BMC Field Engineer'
+      action: 'Resolved',
+      status: 'Resolved',
+      description: resolutionNote,
+      notes: resolutionNote,
+      performedBy: actor,
+      updatedBy: actor,
+      createdAt: new Date(),
+      timestamp: new Date()
     });
 
     await issue.save();
+
+    await Timeline.create({
+      issueId: issue._id,
+      action: 'Resolved',
+      description: `Issue marked as Resolved with inspection proof. ${resolutionNote}`,
+      performedBy: actor,
+      createdAt: new Date()
+    });
 
     res.status(200).json({
       success: true,
@@ -343,7 +464,10 @@ export const resolveIssue = async (req, res, next) => {
 export const addCitizenFeedback = async (req, res, next) => {
   try {
     const { rating, comment } = req.body;
-    const issue = await Issue.findById(req.params.id);
+    const { id } = req.params;
+
+    const query = mongoose.isValidObjectId(id) ? { _id: id } : { issueNumber: id };
+    const issue = await Issue.findOne(query);
 
     if (!issue) {
       return res.status(404).json({
@@ -358,14 +482,28 @@ export const addCitizenFeedback = async (req, res, next) => {
       submittedAt: new Date()
     };
 
+    const feedbackDesc = `Citizen submitted a ${rating || 5}-star audit rating: "${comment || 'Satisfied with resolution'}"`;
+
     issue.timeline.push({
-      status: 'feedback_submitted',
-      notes: `Citizen gave a ${rating || 5}-star rating: "${comment || 'Satisfied with resolution'}"`,
-      timestamp: new Date(),
-      updatedBy: 'Citizen'
+      action: 'Feedback Submitted',
+      status: issue.status,
+      description: feedbackDesc,
+      notes: feedbackDesc,
+      performedBy: 'Citizen',
+      updatedBy: 'Citizen',
+      createdAt: new Date(),
+      timestamp: new Date()
     });
 
     await issue.save();
+
+    await Timeline.create({
+      issueId: issue._id,
+      action: 'Feedback Submitted',
+      description: feedbackDesc,
+      performedBy: 'Citizen',
+      createdAt: new Date()
+    });
 
     res.status(200).json({
       success: true,
@@ -381,8 +519,10 @@ export const getPublicFeed = async (req, res, next) => {
   try {
     const issues = await Issue.find()
       .sort({ updatedAt: -1 })
-      .limit(20)
-      .select('trackingId title description category images location status priority resolution citizenFeedback createdAt updatedAt assignedDepartment');
+      .limit(25)
+      .select(
+        'issueNumber trackingId title description category severity department status latitude longitude address area ward imageUrl images resolutionImageUrl resolutionNote resolvedAt citizenFeedback createdAt updatedAt'
+      );
 
     res.status(200).json({
       success: true,

@@ -1,16 +1,40 @@
 export const DEPARTMENTS = {
-  ROADS: 'Roads & Buildings (PWD)',
-  SOLID_WASTE: 'Solid Waste Management',
-  WATER_DRAINAGE: 'Water Works & Drainage',
-  ELECTRICAL: 'Electrical & Street Lighting',
-  HEALTH: 'Health & Sanitation',
-  ENCROACHMENT: 'Encroachment & Animal Control',
-  HORTICULTURE: 'Horticulture & Parks',
-  GENERAL: 'General Administration'
+  ROADS: 'Roads & Infrastructure',
+  SANITATION: 'Sanitation',
+  ELECTRICAL: 'Electrical',
+  WATER: 'Water Supply',
+  DRAINAGE: 'Drainage',
+  TRAFFIC: 'Traffic',
+  GARDEN: 'Garden & Environment',
+  PUBLIC_PROPERTY: 'Public Property'
+};
+
+export const CATEGORIES = {
+  ROAD_POTHOLE: 'Road & Pothole',
+  GARBAGE_SANITATION: 'Garbage & Sanitation',
+  STREETLIGHT: 'Streetlight',
+  WATER_LEAKAGE: 'Water Leakage',
+  DRAINAGE: 'Drainage',
+  TRAFFIC_SIGNAL: 'Traffic Signal',
+  PUBLIC_PROPERTY: 'Public Property',
+  TREE_ENVIRONMENT: 'Tree & Environment',
+  OTHER: 'Other'
+};
+
+export const CATEGORY_DEPARTMENT_MAP = {
+  'Road & Pothole': 'Roads & Infrastructure',
+  'Garbage & Sanitation': 'Sanitation',
+  'Streetlight': 'Electrical',
+  'Water Leakage': 'Water Supply',
+  'Drainage': 'Drainage',
+  'Traffic Signal': 'Traffic',
+  'Public Property': 'Public Property',
+  'Tree & Environment': 'Garden & Environment',
+  'Other': 'Sanitation'
 };
 
 export const BHAVNAGAR_WARDS = [
-  'Ward 1 - Kaliyabid & Hill Drive',
+  'Ward 1 - Kaliyabid',
   'Ward 2 - Waghawadi Road & Takhteshwar',
   'Ward 3 - Nilambag & Ghogha Circle',
   'Ward 4 - Chitra GIDC & Subhashnagar',
@@ -23,15 +47,19 @@ export const BHAVNAGAR_WARDS = [
 ];
 
 export const routeCategoryToDepartment = (category, description = '') => {
-  const text = `${category} ${description}`.toLowerCase();
+  if (category && CATEGORY_DEPARTMENT_MAP[category]) {
+    return CATEGORY_DEPARTMENT_MAP[category];
+  }
+
+  const text = `${category || ''} ${description || ''}`.toLowerCase();
 
   if (
     text.includes('pothole') ||
     text.includes('road') ||
     text.includes('footpath') ||
-    text.includes('divider') ||
     text.includes('asphalt') ||
-    text.includes('speed breaker')
+    text.includes('speed breaker') ||
+    text.includes('bridge')
   ) {
     return DEPARTMENTS.ROADS;
   }
@@ -42,23 +70,10 @@ export const routeCategoryToDepartment = (category, description = '') => {
     text.includes('trash') ||
     text.includes('dustbin') ||
     text.includes('dump') ||
-    text.includes('plastic') ||
-    text.includes('kachra')
+    text.includes('kachra') ||
+    text.includes('sweep')
   ) {
-    return DEPARTMENTS.SOLID_WASTE;
-  }
-
-  if (
-    text.includes('water') ||
-    text.includes('leak') ||
-    text.includes('drainage') ||
-    text.includes('sewage') ||
-    text.includes('manhole') ||
-    text.includes('pipeline') ||
-    text.includes('gutter') ||
-    text.includes('drain')
-  ) {
-    return DEPARTMENTS.WATER_DRAINAGE;
+    return DEPARTMENTS.SANITATION;
   }
 
   if (
@@ -74,27 +89,34 @@ export const routeCategoryToDepartment = (category, description = '') => {
   }
 
   if (
-    text.includes('cow') ||
-    text.includes('cattle') ||
-    text.includes('dog') ||
-    text.includes('stray') ||
-    text.includes('animal') ||
-    text.includes('encroach') ||
-    text.includes('hawker')
+    text.includes('drinking water') ||
+    text.includes('pipeline') ||
+    text.includes('water leak') ||
+    text.includes('water supply') ||
+    text.includes('water pressure')
   ) {
-    return DEPARTMENTS.ENCROACHMENT;
+    return DEPARTMENTS.WATER;
   }
 
   if (
-    text.includes('mosquito') ||
-    text.includes('dengue') ||
-    text.includes('malaria') ||
-    text.includes('stench') ||
-    text.includes('smell') ||
-    text.includes('epidemic') ||
-    text.includes('sanitation')
+    text.includes('drainage') ||
+    text.includes('sewage') ||
+    text.includes('manhole') ||
+    text.includes('gutter') ||
+    text.includes('drain') ||
+    text.includes('overflow')
   ) {
-    return DEPARTMENTS.HEALTH;
+    return DEPARTMENTS.DRAINAGE;
+  }
+
+  if (
+    text.includes('traffic') ||
+    text.includes('signal') ||
+    text.includes('blinker') ||
+    text.includes('zebra') ||
+    text.includes('road sign')
+  ) {
+    return DEPARTMENTS.TRAFFIC;
   }
 
   if (
@@ -102,10 +124,20 @@ export const routeCategoryToDepartment = (category, description = '') => {
     text.includes('branch') ||
     text.includes('garden') ||
     text.includes('park') ||
-    text.includes('plants')
+    text.includes('greenery')
   ) {
-    return DEPARTMENTS.HORTICULTURE;
+    return DEPARTMENTS.GARDEN;
   }
 
-  return DEPARTMENTS.GENERAL;
+  if (
+    text.includes('encroach') ||
+    text.includes('illegal stall') ||
+    text.includes('railing') ||
+    text.includes('bus stop') ||
+    text.includes('property')
+  ) {
+    return DEPARTMENTS.PUBLIC_PROPERTY;
+  }
+
+  return DEPARTMENTS.ROADS;
 };

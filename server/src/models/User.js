@@ -12,12 +12,13 @@ const userSchema = new mongoose.Schema(
       type: String,
       trim: true,
       lowercase: true,
-      sparse: true
+      sparse: true,
+      unique: true
     },
     phone: {
       type: String,
-      required: [true, 'Please provide a valid phone number'],
-      trim: true
+      trim: true,
+      sparse: true
     },
     password: {
       type: String,
@@ -27,21 +28,12 @@ const userSchema = new mongoose.Schema(
     },
     role: {
       type: String,
-      enum: ['citizen', 'officer', 'admin'],
-      default: 'citizen'
+      enum: ['citizen', 'officer', 'admin', 'Citizen', 'Admin', 'Officer'],
+      default: 'citizen',
+      set: (v) => v ? v.toLowerCase() : 'citizen'
     },
     department: {
       type: String,
-      enum: [
-        'Solid Waste Management',
-        'Roads & Buildings (PWD)',
-        'Water Works & Drainage',
-        'Electrical & Street Lighting',
-        'Health & Sanitation',
-        'Encroachment & Animal Control',
-        'Horticulture & Parks',
-        'General Administration'
-      ],
       default: 'General Administration'
     },
     ward: {
@@ -50,7 +42,21 @@ const userSchema = new mongoose.Schema(
     }
   },
   {
-    timestamps: true
+    timestamps: true,
+    toJSON: {
+      virtuals: true,
+      transform: (doc, ret) => {
+        delete ret.password;
+        return ret;
+      }
+    },
+    toObject: {
+      virtuals: true,
+      transform: (doc, ret) => {
+        delete ret.password;
+        return ret;
+      }
+    }
   }
 );
 
